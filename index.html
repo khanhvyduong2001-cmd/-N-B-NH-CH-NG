@@ -1,33 +1,433 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Thánh Ăn Bánh Chưng</title>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thánh Ăn Bánh Chưng AR</title>
+    
+    <!-- 1. Styles & Fonts -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- MediaPipe Face Mesh & Camera Utils -->
+    <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Patrick Hand', cursive;
+            overflow: hidden;
+            background-color: #111;
+            user-select: none;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .pointer-events-auto {
+            pointer-events: auto;
+        }
+        /* Hiệu ứng Text */
+        .tet-text {
+            text-shadow: 2px 2px 0 #d97706, -1px -1px 0 #d97706, 1px -1px 0 #d97706, -1px 1px 0 #d97706, 1px 1px 0 #d97706;
+        }
+    </style>
+
+    <!-- 2. MediaPipe Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap');
-      body {
-        font-family: 'Patrick Hand', cursive;
-        overflow: hidden; /* Prevent scrolling */
-      }
-    </style>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
     "react": "https://esm.sh/react@^19.2.4",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+    "react/": "https://esm.sh/react@^19.2.4/"
   }
 }
 </script>
 </head>
-  <body>
-    <div id="root"></div>
-  </body>
+<body>
+
+    <!-- Video ẩn để lấy nguồn Webcam -->
+    <video id="input_video" style="display:none" playsinline muted></video>
+    
+    <!-- Canvas chính để vẽ game -->
+    <canvas id="output_canvas"></canvas>
+
+    <!-- UI Overlay -->
+    <div class="ui-layer flex flex-col justify-between p-4">
+        
+        <!-- Score Board -->
+        <div class="flex justify-between w-full" id="score-board" style="display:none;">
+            <div class="bg-red-600 border-4 border-yellow-400 rounded-full px-6 py-2 shadow-lg transform rotate-2">
+                <h2 class="text-3xl font-bold text-yellow-300 drop-shadow-md">
+                    Điểm: <span id="score-display">0</span>
+                </h2>
+            </div>
+        </div>
+
+        <!-- Screens (Loading / Start / GameOver) -->
+        <div id="main-screens" class="absolute inset-0 flex items-center justify-center pointer-events-auto">
+            
+            <!-- Loading Screen -->
+            <div id="screen-loading" class="bg-white/90 backdrop-blur-sm p-8 rounded-2xl text-center border-4 border-red-500 animate-pulse">
+                <p class="text-3xl text-red-600 font-bold mb-2">📷 Đang khởi động Camera...</p>
+                <p class="text-gray-700">Vui lòng cho phép truy cập Webcam.</p>
+                <p class="text-xs text-gray-500 mt-4">Lần đầu tải có thể mất vài giây...</p>
+            </div>
+
+            <!-- Start Screen -->
+            <div id="screen-start" class="text-center hidden animate-bounce">
+                <h1 class="text-6xl md:text-8xl text-yellow-400 font-extrabold tet-text mb-8 text-stroke-red">
+                    THÁNH ĂN<br/>BÁNH CHƯNG
+                </h1>
+                <button onclick="startGame()" class="bg-red-600 hover:bg-red-700 text-yellow-300 text-3xl font-bold py-4 px-12 rounded-full border-4 border-yellow-400 shadow-xl transition-transform hover:scale-110 active:scale-95">
+                    BẮT ĐẦU CHƠI ▶
+                </button>
+                <p class="mt-6 text-white text-xl font-bold bg-black/40 p-3 rounded-lg backdrop-blur-md border border-white/20">
+                    Mở miệng to để ăn bánh!<br/>Ăn càng nhiều, má càng phính!
+                </p>
+            </div>
+
+            <!-- Game Over Screen -->
+            <div id="screen-gameover" class="bg-red-600/95 p-8 md:p-12 rounded-3xl border-8 border-yellow-400 text-center shadow-2xl max-w-lg hidden relative overflow-hidden">
+                <div class="relative z-10">
+                    <h2 class="text-4xl font-extrabold text-yellow-300 mb-2">CHÚC MỪNG NĂM MỚI</h2>
+                    <h3 class="text-5xl md:text-6xl font-black text-white mb-6 uppercase">Béo Tốt!</h3>
+                    
+                    <div class="mb-8 bg-black/20 rounded-xl p-4">
+                        <p class="text-xl text-yellow-100">Thành tích:</p>
+                        <p class="text-6xl font-bold text-yellow-300 mt-2"><span id="final-score">0</span> cái</p>
+                    </div>
+
+                    <button onclick="startGame()" class="bg-yellow-400 hover:bg-yellow-300 text-red-700 text-2xl font-bold py-3 px-8 rounded-full border-4 border-white shadow-lg transition-transform hover:scale-105">
+                        CHƠI LẠI (GIẢM CÂN) ↺
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="text-center opacity-50 absolute bottom-2 w-full left-0">
+            <p class="text-white text-xs">Tết Nguyên Đán AR Game</p>
+        </div>
+    </div>
+
+    <!-- 3. Game Logic Script -->
+    <script>
+        // --- CONSTANTS & CONFIG ---
+        const FOOD_ITEMS = ['🟩', '🍖', '🥓', '🥮', '🍬'];
+        const MAX_FAT = 2.5; // How fat can you get?
+        
+        // --- STATE MANAGEMENT ---
+        const state = {
+            screen: 'LOADING', // LOADING, READY, PLAYING, GAMEOVER
+            score: 0,
+            fatFactor: 1.0,
+            lastSpawnTime: 0,
+            items: [], // {x, y, emoji, speed, id}
+            particles: [], // {x, y, vx, vy, life, color}
+            landmarks: null
+        };
+
+        // --- DOM ELEMENTS ---
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        
+        // Screens
+        const screenLoading = document.getElementById('screen-loading');
+        const screenStart = document.getElementById('screen-start');
+        const screenGameOver = document.getElementById('screen-gameover');
+        const scoreBoard = document.getElementById('score-board');
+        const scoreDisplay = document.getElementById('score-display');
+        const finalScoreDisplay = document.getElementById('final-score');
+
+        // --- UTILS ---
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        }
+
+        function isMouthOpen(landmarks) {
+            const upperLip = landmarks[13];
+            const lowerLip = landmarks[14];
+            const headTop = landmarks[10];
+            const chin = landmarks[152];
+            const mouthDist = getDistance(upperLip, lowerLip);
+            const faceHeight = getDistance(headTop, chin);
+            return (mouthDist / faceHeight) > 0.05; // 5% open threshold
+        }
+
+        // --- GAME ENGINE ---
+        
+        function startGame() {
+            state.score = 0;
+            state.fatFactor = 1.0;
+            state.items = [];
+            state.particles = [];
+            state.screen = 'PLAYING';
+            
+            updateUI();
+        }
+
+        function gameOver() {
+            state.screen = 'GAMEOVER';
+            updateUI();
+        }
+
+        function updateUI() {
+            scoreDisplay.innerText = state.score;
+            finalScoreDisplay.innerText = state.score;
+
+            screenLoading.classList.add('hidden');
+            screenStart.classList.add('hidden');
+            screenGameOver.classList.add('hidden');
+            scoreBoard.style.display = 'none';
+
+            if (state.screen === 'LOADING') {
+                screenLoading.classList.remove('hidden');
+            } else if (state.screen === 'READY') {
+                screenStart.classList.remove('hidden');
+            } else if (state.screen === 'PLAYING') {
+                scoreBoard.style.display = 'flex';
+            } else if (state.screen === 'GAMEOVER') {
+                screenGameOver.classList.remove('hidden');
+                screenGameOver.classList.add('flex'); // Tailwind logic
+            }
+        }
+
+        function spawnConfetti(x, y) {
+            const colors = ['#FFD700', '#FF0000', '#00FF00', '#00FFFF', '#FF00FF'];
+            for (let i = 0; i < 15; i++) {
+                state.particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 15,
+                    vy: (Math.random() - 1) * 15,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    life: 1.0
+                });
+            }
+        }
+
+        function updateGameLogic(width, height) {
+            const now = Date.now();
+
+            // 1. Spawn Items
+            if (now - state.lastSpawnTime > 1000) { // Every 1 second
+                state.items.push({
+                    id: Math.random(),
+                    x: Math.random() * 0.8 + 0.1, // 10% to 90% width
+                    y: -0.1,
+                    speed: 0.003 + Math.random() * 0.004,
+                    emoji: FOOD_ITEMS[Math.floor(Math.random() * FOOD_ITEMS.length)]
+                });
+                state.lastSpawnTime = now;
+            }
+
+            // 2. Mouth Detection & Fat Calculation
+            let isEating = false;
+            let mouthX = 0, mouthY = 0;
+
+            if (state.landmarks && isMouthOpen(state.landmarks)) {
+                isEating = true;
+                
+                // Landmarks are normalized (0-1). We need to map them to the distored view.
+                const nose = state.landmarks[1];
+                const upperLip = state.landmarks[13];
+                const lowerLip = state.landmarks[14];
+                
+                // Raw normalized mouth center
+                const rawMouthX = (upperLip.x + lowerLip.x) / 2;
+                const rawMouthY = (upperLip.y + lowerLip.y) / 2;
+
+                // Distortion Logic: NewX = NoseX + (OldX - NoseX) * FatFactor
+                // Note: This logic assumes we are calculating in normalized space first
+                const distortedNormX = nose.x + (rawMouthX - nose.x) * state.fatFactor;
+                
+                // Since we mirror the canvas output, we need to flip the X coordinate logic for collision
+                // The Items are drawn from Left to Right (0 to 1).
+                // The Video is drawn mirrored.
+                // If I am on the left of the camera, my image is on the right of the screen.
+                // MediaPipe gives coordinates relative to the image source (unmirrored).
+                // So if x is 0.1 (left), it draws at 0.9 (right) when mirrored?
+                // Let's rely on visual alignment.
+                
+                // Let's assume we map simply:
+                mouthX = (1 - distortedNormX) * width; // Mirroring X
+                mouthY = rawMouthY * height;
+
+                // Debug Circle
+                // canvasCtx.beginPath();
+                // canvasCtx.arc(mouthX, mouthY, 20, 0, 2*Math.PI);
+                // canvasCtx.strokeStyle = 'white';
+                // canvasCtx.stroke();
+            }
+
+            // 3. Update Items & Collision
+            for (let i = state.items.length - 1; i >= 0; i--) {
+                let item = state.items[i];
+                item.y += item.speed;
+                
+                const itemX = item.x * width;
+                const itemY = item.y * height;
+
+                // Draw Item
+                canvasCtx.font = "60px Arial";
+                canvasCtx.textAlign = "center";
+                canvasCtx.textBaseline = "middle";
+                canvasCtx.fillText(item.emoji, itemX, itemY);
+
+                // Check Collision
+                if (isEating) {
+                    const dist = Math.sqrt(Math.pow(itemX - mouthX, 2) + Math.pow(itemY - mouthY, 2));
+                    if (dist < 80) { // Hit radius
+                        // EAT!
+                        spawnConfetti(itemX, itemY);
+                        state.score++;
+                        state.fatFactor += 0.05;
+                        state.items.splice(i, 1);
+                        updateUI();
+
+                        if (state.fatFactor >= MAX_FAT) {
+                            setTimeout(gameOver, 500);
+                        }
+                        continue;
+                    }
+                }
+
+                if (item.y > 1.2) {
+                    state.items.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                let p = state.particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.5; // Gravity
+                p.life -= 0.02;
+
+                if (p.life <= 0) {
+                    state.particles.splice(i, 1);
+                    continue;
+                }
+
+                canvasCtx.globalAlpha = p.life;
+                canvasCtx.fillStyle = p.color;
+                canvasCtx.beginPath();
+                canvasCtx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+                canvasCtx.fill();
+                canvasCtx.globalAlpha = 1.0;
+            }
+        }
+
+        // --- MEDIAPIPE CALLBACK ---
+        function onResults(results) {
+            // Update State
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                state.landmarks = results.multiFaceLandmarks[0];
+                if (state.screen === 'LOADING') {
+                    state.screen = 'READY';
+                    updateUI();
+                }
+            } else {
+                state.landmarks = null;
+            }
+
+            // Setup Canvas
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+            const w = canvasElement.width;
+            const h = canvasElement.height;
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, w, h);
+
+            // 1. Mirroring & Fat Distortion
+            // To mirror: translate(w, 0) scale(-1, 1).
+            // To fat: translate(nose) scale(fat) translate(-nose).
+            // Combine: Mirror first (entire world), then Fat relative to where the nose IS in the mirrored world.
+            
+            canvasCtx.translate(w, 0);
+            canvasCtx.scale(-1, 1);
+
+            let noseX = w / 2; // Default center
+            if (state.landmarks) {
+                noseX = state.landmarks[1].x * w; // Landmark 1 is nose tip
+            }
+
+            // Apply Fat Stretch
+            canvasCtx.translate(noseX, 0);
+            canvasCtx.scale(state.fatFactor, 1);
+            canvasCtx.translate(-noseX, 0);
+
+            // Draw Video
+            canvasCtx.drawImage(results.image, 0, 0, w, h);
+
+            // Restore Context for UI elements which shouldn't be distorted (or should they?)
+            // We want Items to NOT be distorted, just the face.
+            canvasCtx.restore();
+
+            // 2. Draw Game Elements
+            if (state.screen === 'PLAYING') {
+                updateGameLogic(w, h);
+            }
+            
+            // 3. Particles (always draw on top)
+            drawParticles();
+        }
+
+        // --- INITIALIZATION ---
+        const faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
+
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+
+        // Check if camera is allowed/starts
+        camera.start().catch(err => {
+            console.error(err);
+            alert("Không thể khởi động Camera. Hãy đảm bảo bạn cho phép truy cập và chạy trên https hoặc localhost.");
+        });
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        });
+
+        // Initialize UI
+        updateUI();
+
+    </script>
+</body>
 </html>
