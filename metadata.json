@@ -1,0 +1,7 @@
+{
+  "name": "Thánh Ăn Bánh Chưng AR",
+  "description": "A fun AR game for Lunar New Year where you eat Bánh Chưng to get 'fat'.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
